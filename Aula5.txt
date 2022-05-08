@@ -1,0 +1,500 @@
+   32  # LINES: 517
+   33  # MD5:   8a416393d4b95efc7afdc555a7c27abb
+   34  unset DYLD_LIBRARY_PATH
+   35  if ! echo "$0" | grep '\.sh$' > /dev/null; then     printf 'Please run using "bash" or "sh", but not "." or "source"\\n' >&2;     return 1; fi
+   36  # Determine RUNNING_SHELL; if SHELL is non-zero use that.
+   37  if [ -n "$SHELL" ]; then     RUNNING_SHELL="$SHELL"; else     if [ "$(uname)" = "Darwin" ]; then         RUNNING_SHELL=/bin/bash;     else         if [ -d /proc ] && [ -r /proc ] && [ -d /proc/$$ ] && [ -r /proc/$$ ] && [ -L /proc/$$/exe ] && [ -r /proc/$$/exe ]; then             RUNNING_SHELL=$(readlink /proc/$$/exe);         fi;         if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then             RUNNING_SHELL=$(ps -p $$ -o args= | sed 's|^-||');             case "$RUNNING_SHELL" in                 */*)                     ;;                 default)                     RUNNING_SHELL=$(which "$RUNNING_SHELL");                     ;;             esac;         fi;     fi; fi
+   38  # Some final fallback locations
+   39  if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then     if [ -f /bin/bash ]; then         RUNNING_SHELL=/bin/bash;     else         if [ -f /bin/sh ]; then             RUNNING_SHELL=/bin/sh;         fi;     fi; fi
+   40  if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then     printf 'Unable to determine your shell. Please set the SHELL env. var and re-run\\n' >&2;     exit 1; fi
+   41  THIS_DIR=$(DIRNAME=$(dirname "$0"); cd "$DIRNAME"; pwd)
+   42  THIS_FILE=$(basename "$0")
+   43  THIS_PATH="$THIS_DIR/$THIS_FILE"
+   44  PREFIX=$HOME/anaconda3
+   45  BATCH=0
+   46  FORCE=0
+   47  SKIP_SCRIPTS=0
+   48  TEST=0
+   49  REINSTALL=0
+   50  USAGE="
+   51  usage: $0 [options]
+   52  Installs Anaconda3 2019.07
+   53  -b           run install in batch mode (without manual intervention),
+   54               it is expected the license terms are agreed upon
+   55  -f           no error if install prefix already exists
+   56  -h           print this help message and exit
+   57  -p PREFIX    install prefix, defaults to $PREFIX, must not contain spaces.
+   58  -s           skip running pre/post-link/install scripts
+   59  -u           update an existing installation
+   60  -t           run package tests after installation (may install conda-build)
+   61  "
+   62  if which getopt > /dev/null 2>&1; then     OPTS=$(getopt bfhp:sut "$*" 2>/dev/null);     if [ ! $? ]; then         printf "%s\\n" "$USAGE";         exit 2;     fi;      eval set -- "$OPTS";      while true; do         case "$1" in             -h)                 printf "%s\\n" "$USAGE";                 exit 2;                 ;;             -b)                 BATCH=1;                 shift;                 ;;             -f)                 FORCE=1;                 shift;                 ;;             -p)                 PREFIX="$2";                 shift;                 shift;                 ;;             -s)                 SKIP_SCRIPTS=1;                 shift;                 ;;             -u)                 FORCE=1;                 shift;                 ;;             -t)                 TEST=1;                 shift;                 ;;             --)                 shift;                 break;                 ;;             *)                 printf "ERROR: did not recognize option '%s', please try -h\\n" "$1";                 exit 1;                 ;;         esac;     done; else     while getopts "bfhp:sut" x; do         case "$x" in             h)                 printf "%s\\n" "$USAGE";                 exit 2;             ;;             b)                 BATCH=1;                 ;;             f)                 FORCE=1;                 ;;             p)                 PREFIX="$OPTARG";                 ;;             s)                 SKIP_SCRIPTS=1;                 ;;             u)                 FORCE=1;                 ;;             t)                 TEST=1;                 ;;             ?)                 printf "ERROR: did not recognize option '%s', please try -h\\n" "$x";                 exit 1;                 ;;         esac;     done; fi
+   63  # verify the size of the installer
+   64  if ! wc -c "$THIS_PATH" | grep    456538380 >/dev/null; then     printf "ERROR: size of %s should be    456538380 bytes\\n" "$THIS_FILE" >&2;     exit 1; fi
+   65  if [ "$BATCH" = "0" ] # interactive mode; then     if [ "$(uname -m)" != "x86_64" ]; then         printf "WARNING:\\n";         printf "    Your operating system appears not to be 64-bit, but you are trying to\\n";         printf "    install a 64-bit version of Anaconda3.\\n";         printf "    Are sure you want to continue the installation? [yes|no]\\n";         printf "[no] >>> ";         read -r ans;         if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&            [ "$ans" != "y" ]   && [ "$ans" != "Y" ];         then             printf "Aborting installation\\n";             exit 2;         fi;     fi;     if [ "$(uname)" != "Darwin" ]; then         printf "WARNING:\\n";         printf "    Your operating system does not appear to be macOS, \\n";         printf "    but you are trying to install a macOS version of Anaconda3.\\n";         printf "    Are sure you want to continue the installation? [yes|no]\\n";         printf "[no] >>> ";         read -r ans;         if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&            [ "$ans" != "y" ]   && [ "$ans" != "Y" ];         then             printf "Aborting installation\\n";             exit 2;         fi;     fi;     printf "\\n";     printf "Welcome to Anaconda3 2019.07\\n";     printf "\\n";     printf "In order to continue the installation process, please review the license\\n";     printf "agreement.\\n";     printf "Please, press ENTER to continue\\n";     printf ">>> ";     read -r dummy;     pager="cat";     if command -v "more" > /dev/null 2>&1; then       pager="more";     fi
+   66      "$pager" <<EOF
+   67  ===================================
+   68  Anaconda End User License Agreement
+   69  ===================================
+   70  Copyright 2015, Anaconda, Inc.
+   71  All rights reserved under the 3-clause BSD License:
+   72  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+   73    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+   74    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+   75    * Neither the name of Anaconda, Inc. ("Anaconda, Inc.") nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+   76  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ANACONDA, INC. BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+   77  Notice of Third Party Software Licenses
+   78  =======================================
+   79  Anaconda Distribution contains open source software packages from third parties. These are available on an "as is" basis and subject to their individual license agreements. These licenses are available in Anaconda Distribution or at http://docs.anaconda.com/anaconda/pkg-docs. Any binary packages of these third party tools you obtain via Anaconda Distribution are subject to their individual licenses as well as the Anaconda license. Anaconda, Inc. reserves the right to change which third party tools are provided in Anaconda Distribution.
+   80  In particular, Anaconda Distribution contains re-distributable, run-time, shared-library files from the Intel(TM) Math Kernel Library ("MKL binaries"). You are specifically authorized to use the MKL binaries with your installation of Anaconda Distribution. You are also authorized to redistribute the MKL binaries with Anaconda Distribution or in the conda package that contains them. Use and redistribution of the MKL binaries are subject to the licensing terms located at https://software.intel.com/en-us/license/intel-simplified-software-license. If needed, instructions for removing the MKL binaries after installation of Anaconda Distribution are available at http://www.anaconda.com.
+   81  Anaconda Distribution also contains cuDNN software binaries from NVIDIA Corporation ("cuDNN binaries"). You are specifically authorized to use the cuDNN binaries with your installation of Anaconda Distribution. You are also authorized to redistribute the cuDNN binaries with an Anaconda Distribution package that contains them. If needed, instructions for removing the cuDNN binaries after installation of Anaconda Distribution are available at http://www.anaconda.com.
+   82  Anaconda Distribution also contains Visual Studio Code software binaries from Microsoft Corporation ("VS Code"). You are specifically authorized to use VS Code with your installation of Anaconda Distribution. Use of VS Code is subject to the licensing terms located at https://code.visualstudio.com/License.
+   83  Cryptography Notice
+   84  ===================
+   85  This distribution includes cryptographic software. The country in which you currently reside may have restrictions on the import, possession, use, and/or re-export to another country, of encryption software. BEFORE using any encryption software, please check your country's laws, regulations and policies concerning the import, possession, or use, and re-export of encryption software, to see if this is permitted. See the Wassenaar Arrangement http://www.wassenaar.org/ for more information.
+   86  Anaconda, Inc. has self-classified this software as Export Commodity Control Number (ECCN) 5D992b, which includes mass market information security software using or performing cryptographic functions with asymmetric algorithms. No license is required for export of this software to non-embargoed countries. In addition, the Intel(TM) Math Kernel Library contained in Anaconda, Inc.'s software is classified by Intel(TM) as ECCN 5D992b with no license required for export to non-embargoed countries and Microsoft's Visual Studio Code software is classified by Microsoft as ECCN 5D992.c with no license required for export to non-embargoed countries.
+   87  The following packages are included in this distribution that relate to cryptography:
+   88  openssl
+   89      The OpenSSL Project is a collaborative effort to develop a robust, commercial-grade, full-featured, and Open Source toolkit implementing the Transport Layer Security (TLS) and Secure Sockets Layer (SSL) protocols as well as a full-strength general purpose cryptography library.
+   90  pycrypto
+   91      A collection of both secure hash functions (such as SHA256 and RIPEMD160), and various encryption algorithms (AES, DES, RSA, ElGamal, etc.).
+   92  pyopenssl
+   93      A thin Python wrapper around (a subset of) the OpenSSL library.
+   94  kerberos (krb5, non-Windows platforms)
+   95      A network authentication protocol designed to provide strong authentication for client/server applications by using secret-key cryptography.
+   96  cryptography
+   97      A Python library which exposes cryptographic recipes and primitives.
+   98  EOF
+   99       printf "\\n";     printf "Do you accept the license terms? [yes|no]\\n";     printf "[no] >>> ";     read -r ans;     while [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&           [ "$ans" != "no" ]  && [ "$ans" != "No" ]  && [ "$ans" != "NO" ];     do         printf "Please answer 'yes' or 'no':'\\n";         printf ">>> ";         read -r ans;     done;     if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ];     then         printf "The license agreement wasn't approved, aborting installation.\\n";         exit 2;     fi;     printf "\\n";     printf "Anaconda3 will now be installed into this location:\\n";     printf "%s\\n" "$PREFIX";     printf "\\n";     printf "  - Press ENTER to confirm the location\\n";     printf "  - Press CTRL-C to abort the installation\\n";     printf "  - Or specify a different location below\\n";     printf "\\n";     printf "[%s] >>> " "$PREFIX";     read -r user_prefix;     if [ "$user_prefix" != "" ]; then         case "$user_prefix" in             *\ * )                 printf "ERROR: Cannot install into directories with spaces\\n" >&2;                 exit 1;                 ;;             *)                 eval PREFIX="$user_prefix";                 ;;         esac;     fi; fi # !BATCH
+  100  case "$PREFIX" in     *\ * )         printf "ERROR: Cannot install into directories with spaces\\n" >&2;         exit 1;         ;; esac
+  101  if [ "$FORCE" = "0" ] && [ -e "$PREFIX" ]; then     printf "ERROR: File or directory already exists: '%s'\\n" "$PREFIX" >&2;     printf "If you want to update an existing installation, use the -u option.\\n" >&2;     exit 1; elif [ "$FORCE" = "1" ] && [ -e "$PREFIX" ]; then     REINSTALL=1; fi
+  102  if ! mkdir -p "$PREFIX"; then     printf "ERROR: Could not create directory: '%s'\\n" "$PREFIX" >&2;     exit 1; fi
+  103  PREFIX=$(cd "$PREFIX"; pwd)
+  104  export PREFIX
+  105  printf "PREFIX=%s\\n" "$PREFIX"
+  106  # verify the MD5 sum of the tarball appended to this header
+  107  MD5=$(tail -n +517 "$THIS_PATH" | md5)
+  108  if ! echo "$MD5" | grep 8a416393d4b95efc7afdc555a7c27abb >/dev/null; then     printf "WARNING: md5sum mismatch of tar archive\\n" >&2;     printf "expected: 8a416393d4b95efc7afdc555a7c27abb\\n" >&2;     printf "     got: %s\\n" "$MD5" >&2; fi
+  109  # extract the tarball appended to this header, this creates the *.tar.bz2 files
+  110  # for all the packages which get installed below
+  111  cd "$PREFIX"
+  112  # disable sysconfigdata overrides, since we want whatever was frozen to be used
+  113  unset PYTHON_SYSCONFIGDATA_NAME _CONDA_PYTHON_SYSCONFIGDATA_NAME
+  114  CONDA_EXEC="$PREFIX/conda.exe"
+  115  if ! tail -c +000000000000020927 "$THIS_PATH" | head -c 9490254 > "$CONDA_EXEC"; then     printf "ERROR: could not clip conda.exe starting at offset 000000000000020927\\n" >&2;     exit 1; fi
+  116  chmod +x "$CONDA_EXEC"
+  117  printf "Unpacking payload ...\n"
+  118  if ! tail -c +000000000000020927 "$THIS_PATH" | tail -c +9490254 | tail -c +2 | "$CONDA_EXEC" constructor --extract-tar --prefix "$PREFIX"; then     printf "ERROR: could not extract tar starting at offset 000000000000020927+9490254+2\\n" >&2;     exit 1; fi
+  119  #!/bin/sh
+  120  #
+  121  # NAME:  Anaconda3
+  122  # VER:   2019.07
+  123  # PLAT:  osx-64
+  124  # BYTES:    456538380
+  125  # LINES: 517
+  126  # MD5:   8a416393d4b95efc7afdc555a7c27abb
+  127  unset DYLD_LIBRARY_PATH
+  128  if ! echo "$0" | grep '\.sh$' > /dev/null; then     printf 'Please run using "bash" or "sh", but not "." or "source"\\n' >&2;     return 1; fi
+  129  # Determine RUNNING_SHELL; if SHELL is non-zero use that.
+  130  if [ -n "$SHELL" ]; then     RUNNING_SHELL="$SHELL"; else     if [ "$(uname)" = "Darwin" ]; then         RUNNING_SHELL=/bin/bash;     else         if [ -d /proc ] && [ -r /proc ] && [ -d /proc/$$ ] && [ -r /proc/$$ ] && [ -L /proc/$$/exe ] && [ -r /proc/$$/exe ]; then             RUNNING_SHELL=$(readlink /proc/$$/exe);         fi;         if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then             RUNNING_SHELL=$(ps -p $$ -o args= | sed 's|^-||');             case "$RUNNING_SHELL" in                 */*)                     ;;                 default)                     RUNNING_SHELL=$(which "$RUNNING_SHELL");                     ;;             esac;         fi;     fi; fi
+  131  # Some final fallback locations
+  132  if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then     if [ -f /bin/bash ]; then         RUNNING_SHELL=/bin/bash;     else         if [ -f /bin/sh ]; then             RUNNING_SHELL=/bin/sh;         fi;     fi; fi
+  133  if [ -z "$RUNNING_SHELL" ] || [ ! -f "$RUNNING_SHELL" ]; then     printf 'Unable to determine your shell. Please set the SHELL env. var and re-run\\n' >&2;     exit 1; fi
+  134  THIS_DIR=$(DIRNAME=$(dirname "$0"); cd "$DIRNAME"; pwd)
+  135  THIS_FILE=$(basename "$0")
+  136  THIS_PATH="$THIS_DIR/$THIS_FILE"
+  137  PREFIX=$HOME/anaconda3
+  138  BATCH=0
+  139  FORCE=0
+  140  SKIP_SCRIPTS=0
+  141  TEST=0
+  142  REINSTALL=0
+  143  USAGE="
+  144  usage: $0 [options]
+  145  Installs Anaconda3 2019.07
+  146  -b           run install in batch mode (without manual intervention),
+  147               it is expected the license terms are agreed upon
+  148  -f           no error if install prefix already exists
+  149  -h           print this help message and exit
+  150  -p PREFIX    install prefix, defaults to $PREFIX, must not contain spaces.
+  151  -s           skip running pre/post-link/install scripts
+  152  -u           update an existing installation
+  153  -t           run package tests after installation (may install conda-build)
+  154  "
+  155  if which getopt > /dev/null 2>&1; then     OPTS=$(getopt bfhp:sut "$*" 2>/dev/null);     if [ ! $? ]; then         printf "%s\\n" "$USAGE";         exit 2;     fi;      eval set -- "$OPTS";      while true; do         case "$1" in             -h)                 printf "%s\\n" "$USAGE";                 exit 2;                 ;;             -b)                 BATCH=1;                 shift;                 ;;             -f)                 FORCE=1;                 shift;                 ;;             -p)                 PREFIX="$2";                 shift;                 shift;                 ;;             -s)                 SKIP_SCRIPTS=1;                 shift;                 ;;             -u)                 FORCE=1;                 shift;                 ;;             -t)                 TEST=1;                 shift;                 ;;             --)                 shift;                 break;                 ;;             *)                 printf "ERROR: did not recognize option '%s', please try -h\\n" "$1";                 exit 1;                 ;;         esac;     done; else     while getopts "bfhp:sut" x; do         case "$x" in             h)                 printf "%s\\n" "$USAGE";                 exit 2;             ;;             b)                 BATCH=1;                 ;;             f)                 FORCE=1;                 ;;             p)                 PREFIX="$OPTARG";                 ;;             s)                 SKIP_SCRIPTS=1;                 ;;             u)                 FORCE=1;                 ;;             t)                 TEST=1;                 ;;             ?)                 printf "ERROR: did not recognize option '%s', please try -h\\n" "$x";                 exit 1;                 ;;         esac;     done; fi
+  156  # verify the size of the installer
+  157  if ! wc -c "$THIS_PATH" | grep    456538380 >/dev/null; then     printf "ERROR: size of %s should be    456538380 bytes\\n" "$THIS_FILE" >&2;     exit 1; fi
+  158  if [ "$BATCH" = "0" ] # interactive mode; then     if [ "$(uname -m)" != "x86_64" ]; then         printf "WARNING:\\n";         printf "    Your operating system appears not to be 64-bit, but you are trying to\\n";         printf "    install a 64-bit version of Anaconda3.\\n";         printf "    Are sure you want to continue the installation? [yes|no]\\n";         printf "[no] >>> ";         read -r ans;         if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&            [ "$ans" != "y" ]   && [ "$ans" != "Y" ];         then             printf "Aborting installation\\n";             exit 2;         fi;     fi;     if [ "$(uname)" != "Darwin" ]; then         printf "WARNING:\\n";         printf "    Your operating system does not appear to be macOS, \\n";         printf "    but you are trying to install a macOS version of Anaconda3.\\n";         printf "    Are sure you want to continue the installation? [yes|no]\\n";         printf "[no] >>> ";         read -r ans;         if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&            [ "$ans" != "y" ]   && [ "$ans" != "Y" ];         then             printf "Aborting installation\\n";             exit 2;         fi;     fi;     printf "\\n";     printf "Welcome to Anaconda3 2019.07\\n";     printf "\\n";     printf "In order to continue the installation process, please review the license\\n";     printf "agreement.\\n";     printf "Please, press ENTER to continue\\n";     printf ">>> ";     read -r dummy;     pager="cat";     if command -v "more" > /dev/null 2>&1; then       pager="more";     fi
+  159      "$pager" <<EOF
+  160  ===================================
+  161  Anaconda End User License Agreement
+  162  ===================================
+  163  Copyright 2015, Anaconda, Inc.
+  164  All rights reserved under the 3-clause BSD License:
+  165  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+  166    * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+  167    * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+  168    * Neither the name of Anaconda, Inc. ("Anaconda, Inc.") nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+  169  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ANACONDA, INC. BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  170  Notice of Third Party Software Licenses
+  171  =======================================
+  172  Anaconda Distribution contains open source software packages from third parties. These are available on an "as is" basis and subject to their individual license agreements. These licenses are available in Anaconda Distribution or at http://docs.anaconda.com/anaconda/pkg-docs. Any binary packages of these third party tools you obtain via Anaconda Distribution are subject to their individual licenses as well as the Anaconda license. Anaconda, Inc. reserves the right to change which third party tools are provided in Anaconda Distribution.
+  173  In particular, Anaconda Distribution contains re-distributable, run-time, shared-library files from the Intel(TM) Math Kernel Library ("MKL binaries"). You are specifically authorized to use the MKL binaries with your installation of Anaconda Distribution. You are also authorized to redistribute the MKL binaries with Anaconda Distribution or in the conda package that contains them. Use and redistribution of the MKL binaries are subject to the licensing terms located at https://software.intel.com/en-us/license/intel-simplified-software-license. If needed, instructions for removing the MKL binaries after installation of Anaconda Distribution are available at http://www.anaconda.com.
+  174  Anaconda Distribution also contains cuDNN software binaries from NVIDIA Corporation ("cuDNN binaries"). You are specifically authorized to use the cuDNN binaries with your installation of Anaconda Distribution. You are also authorized to redistribute the cuDNN binaries with an Anaconda Distribution package that contains them. If needed, instructions for removing the cuDNN binaries after installation of Anaconda Distribution are available at http://www.anaconda.com.
+  175  Anaconda Distribution also contains Visual Studio Code software binaries from Microsoft Corporation ("VS Code"). You are specifically authorized to use VS Code with your installation of Anaconda Distribution. Use of VS Code is subject to the licensing terms located at https://code.visualstudio.com/License.
+  176  Cryptography Notice
+  177  ===================
+  178  This distribution includes cryptographic software. The country in which you currently reside may have restrictions on the import, possession, use, and/or re-export to another country, of encryption software. BEFORE using any encryption software, please check your country's laws, regulations and policies concerning the import, possession, or use, and re-export of encryption software, to see if this is permitted. See the Wassenaar Arrangement http://www.wassenaar.org/ for more information.
+  179  Anaconda, Inc. has self-classified this software as Export Commodity Control Number (ECCN) 5D992b, which includes mass market information security software using or performing cryptographic functions with asymmetric algorithms. No license is required for export of this software to non-embargoed countries. In addition, the Intel(TM) Math Kernel Library contained in Anaconda, Inc.'s software is classified by Intel(TM) as ECCN 5D992b with no license required for export to non-embargoed countries and Microsoft's Visual Studio Code software is classified by Microsoft as ECCN 5D992.c with no license required for export to non-embargoed countries.
+  180  The following packages are included in this distribution that relate to cryptography:
+  181  openssl
+  182      The OpenSSL Project is a collaborative effort to develop a robust, commercial-grade, full-featured, and Open Source toolkit implementing the Transport Layer Security (TLS) and Secure Sockets Layer (SSL) protocols as well as a full-strength general purpose cryptography library.
+  183  pycrypto
+  184      A collection of both secure hash functions (such as SHA256 and RIPEMD160), and various encryption algorithms (AES, DES, RSA, ElGamal, etc.).
+  185  pyopenssl
+  186      A thin Python wrapper around (a subset of) the OpenSSL library.
+  187  kerberos (krb5, non-Windows platforms)
+  188      A network authentication protocol designed to provide strong authentication for client/server applications by using secret-key cryptography.
+  189  cryptography
+  190      A Python library which exposes cryptographic recipes and primitives.
+  191  EOF
+  192       printf "\\n";     printf "Do you accept the license terms? [yes|no]\\n";     printf "[no] >>> ";     read -r ans;     while [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ] &&           [ "$ans" != "no" ]  && [ "$ans" != "No" ]  && [ "$ans" != "NO" ];     do         printf "Please answer 'yes' or 'no':'\\n";         printf ">>> ";         read -r ans;     done;     if [ "$ans" != "yes" ] && [ "$ans" != "Yes" ] && [ "$ans" != "YES" ];     then         printf "The license agreement wasn't approved, aborting installation.\\n";         exit 2;     fi;     printf "\\n";     printf "Anaconda3 will now be installed into this location:\\n";     printf "%s\\n" "$PREFIX";     printf "\\n";     printf "  - Press ENTER to confirm the location\\n";     printf "  - Press CTRL-C to abort the installation\\n";     printf "  - Or specify a different location below\\n";     printf "\\n";     printf "[%s] >>> " "$PREFIX";     read -r user_prefix;     if [ "$user_prefix" != "" ]; then         case "$user_prefix" in             *\ * )                 printf "ERROR: Cannot install into directories with spaces\\n" >&2;                 exit 1;                 ;;             *)                 eval PREFIX="$user_prefix";                 ;;         esac;     fi; fi # !BATCH
+  193  case "$PREFIX" in     *\ * )         printf "ERROR: Cannot install into directories with spaces\\n" >&2;         exit 1;         ;; esac
+  194  if [ "$FORCE" = "0" ] && [ -e "$PREFIX" ]; then     printf "ERROR: File or directory already exists: '%s'\\n" "$PREFIX" >&2;     printf "If you want to update an existing installation, use the -u option.\\n" >&2;     exit 1; elif [ "$FORCE" = "1" ] && [ -e "$PREFIX" ]; then     REINSTALL=1; fi
+  195  git add .
+  196  cd com.ecgview.mobileecg/
+  197  ls
+  198  git add .
+  199  git commit -m "novas alteracoes"
+  200  git push origin master
+  201  git clone https://github.com/hcodebr/curso-javascript-projeto-usuarios.git
+  202  git clone https://github.com/hcodebr/curso-javascript-projeto-usuarios.git
+  203  git config --global user.name "langa"
+  204  git config --global user.name "jltlanga"
+  205  git config --global user.email "julitolanga@gmail.com"
+  206  git status
+  207  git config --global uuser.name "jltlanga"
+  208  git config --global user.email "julitolanga@gmail.com"
+  209  git init
+  210  git status
+  211  git add versoes.txt
+  212  git status
+  213  git commit -m "meu primeiro commit"
+  214  git log
+  215  git remote add origin hrrps://github.com/jltlanga/senai-versoes-colaboracoes.git
+  216  git remote -v
+  217  git remote -v
+  218  git push -u origin mater
+  219  git remote -v
+  220  git push -u origin master
+  221  git --help
+  222  git remote -v
+  223  git --global user.name "jltlanga"
+  224  git config --globall user.name "jltlanga"
+  225  git config --global user.name "jltlanga"
+  226  git config user.email "julitolanga@gmail.com"
+  227  git remote -v
+  228  git push -u origin master
+  229  git remote -v
+  230  git remote -v
+  231  git push -u origin master
+  232  git push -u origin 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
+  233  git init
+  234  git init
+  235  cd..
+  236  dir
+  237  cd
+  238  git status
+  239  git init
+  240  git status
+  241  git status
+  242  git status
+  243  git add convidados.txt
+  244  git status
+  245  git commint -m "Cria o arquivo de convidados"
+  246  git commit -m "Cria o arquivo de convidados"
+  247  git status
+  248  git status
+  249  git status
+  250  git add.
+  251  git status
+  252  git add .
+  253  git status
+  254  git commit -m "Adiciona os convidados: Julito e Maria e cria arquivo de versões"
+  255  git status
+  256  git status
+  257  git commit -m "Esclusão de srquivo de versões"
+  258  git commint -m
+  259  git status
+  260  git add versoes.txt
+  261  git status
+  262  git commit -m "Esclusão de arquivo de versões"
+  263  git status
+  264  git remote add https://github.com/jltlanga/senai-versoes-colaboracoes.git
+  265   ^M
+  266  git remote add origin https://github.com/jltlanga/senai-versoes-colaboracoes.git
+  267  git remote -v
+  268  git branch -M main
+  269  git push -u origin main
+  270  git push -u origun main
+  271  git push
+  272  git push --set-upstream origin main
+  273  git push -u origun main
+  274  git push -u origin main
+  275  git status
+  276  git add convidados.txt
+  277  git status
+  278  git push -u origin main
+  279  git commit
+  280  git status
+  281  git commit convidados.txt
+  282  git commit -m "Adiciona novos convidados na festa"
+  283  git status
+  284  git push -u origin main
+  285  git status
+  286  git log
+  287  git status
+  288  git add teste.txt
+  289  git commit -m "Cria arquivo teste"
+  290  git status
+  291  git push -u origin main
+  292  git status
+  293  git add .
+  294  git push
+  295  git commit -m "Adiciona novos membros"
+  296  git status
+  297  git push
+  298  git pull
+  299  git pull
+  300  git branch login
+  301  git branch --list
+  302  git branch login
+  303  git status
+  304  git checkout login
+  305  git status
+  306  git add .
+  307  git status
+  308  git commit -m "Inicializa a funcionalidade login"
+  309  git status
+  310  git pull
+  311  git push --set-upstream origin login
+  312  git status
+  313  git add .
+  314  git status
+  315  git commit -m "Adiciona a validação do usuário"
+  316  git status
+  317  git checkout main
+  318  git merge login
+  319  git status
+  320  git push
+  321  git pull
+  322  git push origin main
+  323  git satatus
+  324  git status
+  325  git diff
+  326  git add.
+  327  git add
+  328  git add .
+  329  git commit -m "Lista de principais comandos utilizados no versionamento de c´´odigos em ambiente Git"
+  330  git status
+  331  git push
+  332  git status
+  333  git status
+  334  git add .
+  335  git status
+  336  git commit -m "Atualiza lista de principais comandos utilizados no versionamento"
+  337  git pull
+  338  git status
+  339  git log
+  340  git clone https://github.com/jltlanga/senai-versoes-colaboracoes.git
+  341  git status
+  342  git add .
+  343  git status
+  344  git commit -m "Finaliza a lista de comandos utilizados em git"
+  345  git pull
+  346  git diff
+  347  git status
+  348  git status
+  349  git push
+  350  git status
+  351  git add .
+  352  git commit -m "Atualiza lista de comandos formatada"
+  353  git push
+  354  git add .
+  355  git commit -a "Atualiza comandos de versionamento"
+  356  git commit -a "Atualiza comandos de versionamento"
+  357  git status
+  358  git push
+  359  git commit -m "Atualiza comandos de versionamento"
+  360  git status
+  361  git add .
+  362  git commit -m "Atualiza comandos de versionamento"
+  363  git push
+  364  git status
+  365  git status
+  366  git add .
+  367  git commit -m
+  368  git commit -m "Atualizar lista"
+  369  git push origin main
+  370  git status
+  371  git add .
+  372  git status
+  373  git commit -m "lista dos principais comandos utilizados para gerenciar o versionamento dos códigos no ambiente Git"
+  374  git push origin main
+  375  git push
+  376  git status
+  377  git add .
+  378  git commit -m "Aciona Vitor Reis na lista de convite"
+  379  git commit -m "Aciona Vitor no trabalho"
+  380  git status
+  381  git  add .
+  382  git commit -m "Adiciona Vitor no Trabalho"
+  383  git status
+  384  git push origin main
+  385  git status
+  386  git add .
+  387  git commit -m "Adiciona o Rogério em casa"
+  388  git push origin main
+  389  git pull
+  390  git status
+  391  git status
+  392  git status
+  393  git add .
+  394  git commit -m "Adiciona Rogério na lista, em casa"
+  395  git push origin main
+  396  git status
+  397  git add .
+  398  git commit -m "Resolve conflito"
+  399  git push origin main
+  400  git pull
+  401  git add .
+  402  git commit -m "Resolve conflito"
+  403  git push origin main
+  404  git branch
+  405  git branch "Lista reserva"
+  406  git branch "tutor"
+  407  git branch
+  408  git checkout tutor
+  409  git checkout main
+  410  git checkout tutor
+  411  git merge main
+  412  git status
+  413  git commit -m "Nova branch"
+  414  git push
+  415  git checkout main
+  416  git branch
+  417  git pull
+  418  git branch -a
+  419  git trunk
+  420  git checkout main
+  421  git branch -b newBranch
+  422  git branch newBranch
+  423  git checkout newBranch
+  424  git status
+  425  git add .
+  426  git commit -m "Adiciona alteração na nova branch"
+  427  git push origin newBranch
+  428  git tag -a v1.00 -m "Minha primeira tag"
+  429  git tag
+  430  git show v1.00
+  431  git push origin --tags
+  432  ls
+  433  ls -a
+  434  ls ..
+  435  pwd
+  436  ls
+  437  cd Google Drive/ENGENHARIA DE ENERGIA2020/Fulstake2022/Toti
+  438  clear
+  439  git log
+  440  git log --pretty=online
+  441  git log
+  442  git config --global core.pager "less -F"
+  443  git log
+  444  git log --pretty=oneline
+  445  git log stat
+  446  git log --stat
+  447  git log -p
+  448  git log -p -2
+  449  git log --author='jltlanga'
+  450  git status
+  451  touch teste
+  452  git add teste
+  453  git status
+  454  git commit -m 'Commit de teste'
+  455  git log
+  456  git reset --soft HEAD ~
+  457  git status
+  458  git reset --hard HEAD~
+  459  git log --pretty=oneline
+  460  git checkout HEAD~~
+  461  git status
+  462  git log
+  463  ls
+  464  git checkout master
+  465  git checkout master
+  466  git checkout main
+  467  git log
+  468  git checkout HEAD~2
+  469  git log
+  470  git checkout main
+  471  clear
+  472  mkdir .vscode
+  473  touchc conf.txt
+  474  mv conf.txt .vscode/
+  475  touch conf.txt
+  476  mv conf.txt .vscode/
+  477  ls.vscode
+  478  ls .vscode
+  479  ls
+  480  ls -a
+  481  git status
+  482  echo '.vscode/' >gitignore
+  483  git status
+  484  touch pessoal.conf
+  485  git status
+  486  echo 'pessoal.conf' >> .gitignore
+  487  git status
+  488  git add .gitignore
+  489  git commit -m 'Adicionado arquivo gitinore'
+  490  git statu
+  491  history > Aula4.txt
+  492  git status
+  493  git add .
+  494  git commit  -m 'Comandos da aula4'
+  495  history -c: clear
+  496  clear
+  497  git branch
+  498  git checkout -b feature
+  499  git branch
+  500  touch Nova_feature
+  501  git status
+  502  git add Nova_feature
+  503  git commit -m 'Adicionando nova feature'
+  504  git status
+  505  git log
+  506  git checkout main
+  507  git status
+  508  git log
+  509  touch Continuando_main
+  510  git add Continuando_main
+  511  git log
+  512  git checkout feature
+  513  git log
+  514  git checkout -b feature2 main
+  515  git checkout
+  516  git branch -d feature2
+  517  git checkout main
+  518  git branch -d feature2
+  519  git checkout featrue2
+  520  clear
+  521  git log feature
+  522  git checkout feature
+  523  git log --pretty=oneline --graph
+  524  git merge main
+  525  git log
+  526  git log --pretty=oneline --graph
+  527  git reset --hard HEAD~
+  528  git log --pretty=oneline --graph
+  529  git rebase main
+  530  git log --pretty=oneline --graph
+  531  history > Aula5.txt
